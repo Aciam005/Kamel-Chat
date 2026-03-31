@@ -994,6 +994,48 @@ body {
 }
 
 /* =========================================================================
+   Branch Navigator
+   ========================================================================= */
+.branch-navigator {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 4px;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    user-select: none;
+}
+
+.branch-navigator button {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2px;
+    border-radius: 4px;
+    transition: background-color 0.2s, color 0.2s;
+}
+
+.branch-navigator button:hover:not(:disabled) {
+    background-color: var(--hover-bg);
+    color: var(--text-primary);
+}
+
+.branch-navigator button:disabled {
+    opacity: 0.3;
+    cursor: default;
+}
+
+.branch-navigator span {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+/* =========================================================================
    Message Actions (Retry, Copy, Edit)
    ========================================================================= */
 .message-actions {

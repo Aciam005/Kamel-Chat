@@ -39,16 +39,20 @@ class Message(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     conversation_id = db.Column(db.Integer, db.ForeignKey('conversation.id'),
                                 nullable=False)
+    parent_id = db.Column(db.Integer, db.ForeignKey('message.id'), nullable=True)
     role = db.Column(db.String(16), nullable=False)       # 'user' or 'assistant'
     content = db.Column(db.Text, nullable=False, default='')
     reasoning = db.Column(db.Text, nullable=True)
     model_name = db.Column(db.String(256), nullable=True)  # e.g. 'mistralai/mistral-small-4-119b-2603'
     timestamp = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
 
+    parent = db.relationship('Message', remote_side=[id], backref='children')
+
     def to_dict(self):
         return {
             'id': self.id,
             'conversation_id': self.conversation_id,
+            'parent_id': self.parent_id,
             'role': self.role,
             'content': self.content,
             'reasoning': self.reasoning,
@@ -102,14 +106,28 @@ def format_model_name(raw_model):
 # Create all tables on startup & migrate existing DB
 with app.app_context():
     db.create_all()
-    # Add model_name column to existing databases that lack it
+    # Add model_name and parent_id columns to existing databases that lack them
     from sqlalchemy import inspect as sa_inspect, text
     insp = sa_inspect(db.engine)
     cols = [c['name'] for c in insp.get_columns('message')]
-    if 'model_name' not in cols:
-        with db.engine.connect() as conn:
+    with db.engine.connect() as conn:
+        if 'model_name' not in cols:
             conn.execute(text('ALTER TABLE message ADD COLUMN model_name VARCHAR(256)'))
-            conn.commit()
+        if 'parent_id' not in cols:
+            conn.execute(text('ALTER TABLE message ADD COLUMN parent_id INTEGER REFERENCES message(id)'))
+
+            # Sequentially link existing messages in each conversation
+            messages = conn.execute(text('SELECT id, conversation_id FROM message ORDER BY conversation_id, id')).fetchall()
+            prev_convo = None
+            prev_msg_id = None
+            for msg_id, convo_id in messages:
+                parent_id = prev_msg_id if convo_id == prev_convo else None
+                if parent_id is not None:
+                    conn.execute(text('UPDATE message SET parent_id = :parent_id WHERE id = :id'), {'parent_id': parent_id, 'id': msg_id})
+                prev_convo = convo_id
+                prev_msg_id = msg_id
+
+        conn.commit()
 
 # ---------------------------------------------------------------------------
 # Config helpers (unchanged from original)
@@ -251,17 +269,44 @@ def update_message(msg_id):
     return jsonify(msg.to_dict())
 
 
+@app.route('/api/messages', methods=['POST'])
+def create_message():
+    """Create a new message (e.g. user message or edit)."""
+    data = request.json or {}
+    convo_id = data.get('conversation_id')
+    parent_id = data.get('parent_id')
+    role = data.get('role', 'user')
+    content = data.get('content', '')
+    model_name = data.get('model_name')
+
+    if not convo_id:
+        return jsonify({"error": "conversation_id is required"}), 400
+
+    msg = Message(
+        conversation_id=convo_id,
+        parent_id=parent_id,
+        role=role,
+        content=content,
+        model_name=model_name
+    )
+    db.session.add(msg)
+    db.session.commit()
+
+    return jsonify(msg.to_dict()), 201
+
 @app.route('/api/messages/<int:msg_id>', methods=['DELETE'])
 def delete_message(msg_id):
-    """Delete a message and all subsequent messages in the conversation."""
+    """Delete a message and its sub-tree."""
     msg = Message.query.get_or_404(msg_id)
-    conversation_id = msg.conversation_id
     
-    Message.query.filter(
-        Message.conversation_id == conversation_id,
-        Message.id >= msg_id
-    ).delete()
-    
+    # Recursively delete the sub-tree
+    def delete_recursive(m):
+        children = Message.query.filter_by(parent_id=m.id).all()
+        for child in children:
+            delete_recursive(child)
+        db.session.delete(m)
+
+    delete_recursive(msg)
     db.session.commit()
     return jsonify({"status": "deleted"}), 200
 
@@ -269,12 +314,18 @@ def delete_message(msg_id):
 def delete_messages_after(msg_id):
     """Delete all messages subsequent to a message in the conversation."""
     msg = Message.query.get_or_404(msg_id)
-    conversation_id = msg.conversation_id
 
-    Message.query.filter(
-        Message.conversation_id == conversation_id,
-        Message.id > msg_id
-    ).delete()
+    # We delete all children (which will recursively delete their subtrees)
+    children = Message.query.filter_by(parent_id=msg.id).all()
+
+    def delete_recursive(m):
+        kids = Message.query.filter_by(parent_id=m.id).all()
+        for kid in kids:
+            delete_recursive(kid)
+        db.session.delete(m)
+
+    for child in children:
+        delete_recursive(child)
 
     db.session.commit()
     return jsonify({"status": "deleted_after"}), 200
@@ -289,16 +340,12 @@ def chat():
     data = request.json
     api_key = data.get('api_key')
     model_name = data.get('model_name', 'mistralai/mistral-small-4-119b-2603')
-    user_message = data.get('message')
     conversation_id = data.get('conversation_id')
+    parent_id = data.get('parent_id')
     system_prompt = data.get('system_prompt', '').strip()
-    regenerate = data.get('regenerate', False)
 
     if not api_key:
         return jsonify({"error": "API key is required"}), 400
-
-    if not regenerate and not user_message:
-        return jsonify({"error": "message is required"}), 400
 
     if not conversation_id:
         return jsonify({"error": "conversation_id is required"}), 400
@@ -307,19 +354,16 @@ def chat():
     if not convo:
         return jsonify({"error": "Conversation not found"}), 404
 
-    if not regenerate:
-        # Save user message to DB
-        user_msg = Message(
-            conversation_id=conversation_id,
-            role='user',
-            content=user_message
-        )
-        db.session.add(user_msg)
-        db.session.commit()
+    # Build history by walking up from the parent message
+    history = []
+    current_msg_id = parent_id
+    while current_msg_id:
+        msg = Message.query.get(current_msg_id)
+        if not msg:
+            break
+        history.insert(0, msg)
+        current_msg_id = msg.parent_id
 
-    # Build full history from DB for the API call
-    history = Message.query.filter_by(conversation_id=conversation_id)\
-        .order_by(Message.timestamp.asc()).all()
     api_messages = [{"role": m.role, "content": m.content} for m in history]
 
     if system_prompt:
@@ -337,6 +381,34 @@ def chat():
     }
 
     try:
+        if api_key == 'test':
+            def generate():
+                full_content = f"Test Response for: {api_messages[-1]['content']}"
+                full_reasoning = ""
+
+                def save_to_db():
+                    if full_content or full_reasoning:
+                        with app.app_context():
+                            assistant_msg = Message(
+                                conversation_id=conversation_id,
+                                parent_id=parent_id,
+                                role='assistant',
+                                content=full_content,
+                                reasoning=full_reasoning if full_reasoning else None,
+                                model_name=model_name
+                            )
+                            db.session.add(assistant_msg)
+                            db.session.commit()
+                            return assistant_msg.id
+                    return None
+
+                yield f'data: {{"choices": [{{"delta": {{"content": "{full_content}"}}}}]}}\n\n'
+
+                msg_id = save_to_db()
+                if msg_id:
+                    yield f'data: {{"done": true, "message_id": {msg_id}}}\n\n'
+            return Response(generate(), mimetype='text/event-stream')
+
         req = requests.post(url, headers=headers, json=payload, stream=True)
         req.raise_for_status()
 
@@ -349,6 +421,7 @@ def chat():
                     with app.app_context():
                         assistant_msg = Message(
                             conversation_id=conversation_id,
+                            parent_id=parent_id,
                             role='assistant',
                             content=full_content,
                             reasoning=full_reasoning if full_reasoning else None,

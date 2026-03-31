@@ -12,6 +12,11 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentConversationId = null;
     let conversations = [];
 
+    // Tree state for active conversation
+    let messagesMap = {}; // msgId -> msgObject
+    let messageChildren = {}; // parentId -> [msgId, ...]
+    let activeBranch = {}; // parentId -> activeChildId
+
     // =====================================================================
     // DOM References
     // =====================================================================
@@ -257,46 +262,79 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!res.ok) throw new Error('Failed to load messages');
             const messages = await res.json();
 
-            // Clear chat
-            chatHistory.innerHTML = '';
+            // Build tree state
+            messagesMap = {};
+            messageChildren = { null: [] };
+            activeBranch = {};
 
-            if (messages.length === 0) {
-                chatHistory.classList.add('empty');
-                // Re-add hero
-                chatHistory.innerHTML = `
-                    <div class="hero" id="hero-logo">
-                        <svg class="pixel-c-logo" viewBox="0 0 5 5" width="150" height="150">
-                            <defs>
-                                <linearGradient id="camelGradient" x1="0%" y1="0%" x2="0%" y2="100%">
-                                    <stop offset="0%" stop-color="#e32636" />
-                                    <stop offset="100%" stop-color="#ffcc00" />
-                                </linearGradient>
-                            </defs>
-                            <g fill="url(#camelGradient)">
-                                <rect x="1" y="0" width="4" height="1"/>
-                                <rect x="0" y="1" width="1" height="1"/>
-                                <rect x="0" y="2" width="1" height="1"/>
-                                <rect x="0" y="3" width="1" height="1"/>
-                                <rect x="1" y="4" width="4" height="1"/>
-                                <rect x="4" y="1" width="1" height="1"/>
-                                <rect x="4" y="3" width="1" height="1"/>
-                            </g>
-                        </svg>
-                    </div>
-                `;
-            } else {
-                chatHistory.classList.remove('empty');
-                messages.forEach(msg => {
-                    if (msg.role === 'user') {
-                        addMessage('User', msg.content, 'user', null, null, null, msg.id);
-                    } else {
-                        const displayName = msg.formatted_model_name || 'Assistant';
-                        addMessage('AI', msg.content, 'ai', msg.reasoning, displayName, msg.timestamp, msg.id);
-                    }
-                });
+            messages.forEach(msg => {
+                messagesMap[msg.id] = msg;
+                const pId = msg.parent_id || null;
+                if (!messageChildren[pId]) messageChildren[pId] = [];
+                messageChildren[pId].push(msg.id);
+            });
+
+            // Initialize activeBranch to always point to the most recent child (by highest id, representing latest created in sequential load)
+            for (const [pId, children] of Object.entries(messageChildren)) {
+                if (children.length > 0) {
+                    activeBranch[pId] = children[children.length - 1]; // last one is the latest
+                }
             }
+
+            renderChat();
+
         } catch (err) {
             console.error('Error loading messages:', err);
+        }
+    }
+
+    function renderChat() {
+        chatHistory.innerHTML = '';
+
+        let currentMsgId = activeBranch['null'];
+        const activePath = [];
+
+        while (currentMsgId) {
+            const msg = messagesMap[currentMsgId];
+            if (!msg) break;
+            activePath.push(msg);
+            currentMsgId = activeBranch[currentMsgId];
+        }
+
+        if (activePath.length === 0) {
+            chatHistory.classList.add('empty');
+            // Re-add hero
+            chatHistory.innerHTML = `
+                <div class="hero" id="hero-logo">
+                    <svg class="pixel-c-logo" viewBox="0 0 5 5" width="150" height="150">
+                        <defs>
+                            <linearGradient id="camelGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+                                <stop offset="0%" stop-color="#e32636" />
+                                <stop offset="100%" stop-color="#ffcc00" />
+                            </linearGradient>
+                        </defs>
+                        <g fill="url(#camelGradient)">
+                            <rect x="1" y="0" width="4" height="1"/>
+                            <rect x="0" y="1" width="1" height="1"/>
+                            <rect x="0" y="2" width="1" height="1"/>
+                            <rect x="0" y="3" width="1" height="1"/>
+                            <rect x="1" y="4" width="4" height="1"/>
+                            <rect x="4" y="1" width="1" height="1"/>
+                            <rect x="4" y="3" width="1" height="1"/>
+                        </g>
+                    </svg>
+                </div>
+            `;
+        } else {
+            chatHistory.classList.remove('empty');
+            activePath.forEach(msg => {
+                if (msg.role === 'user') {
+                    addMessage('User', msg.content, 'user', null, null, null, msg.id, msg.parent_id);
+                } else {
+                    const displayName = msg.formatted_model_name || 'Assistant';
+                    addMessage('AI', msg.content, 'ai', msg.reasoning, displayName, msg.timestamp, msg.id, msg.parent_id);
+                }
+            });
         }
     }
 
@@ -474,6 +512,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function startNewChat() {
         currentConversationId = null;
+        messagesMap = {};
+        messageChildren = { null: [] };
+        activeBranch = {};
+
         highlightActiveConversation();
         highlightNavNewChat(true);
 
@@ -589,8 +631,15 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
+        // Find the leaf of the active branch to be the parent
+        let currentParentId = activeBranch['null'] || null;
+        while (currentParentId && activeBranch[currentParentId]) {
+            currentParentId = activeBranch[currentParentId];
+        }
+
         chatHistory.classList.remove('empty');
-        addMessage('User', message, 'user');
+        // Render optimistically
+        addMessage('User', message, 'user', null, null, null, 'temp-user', currentParentId);
 
         userInput.value = '';
         userInput.style.height = 'auto';
@@ -601,6 +650,31 @@ document.addEventListener('DOMContentLoaded', () => {
         currentAbortController = new AbortController();
 
         try {
+            // 1. Save user message to DB
+            const userRes = await fetch('/api/messages', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    conversation_id: currentConversationId,
+                    parent_id: currentParentId,
+                    role: 'user',
+                    content: message
+                })
+            });
+            if (!userRes.ok) throw new Error('Failed to save user message');
+            const savedUserMsg = await userRes.json();
+
+            // Re-render optimistically the new node
+            const tempUserMsg = document.querySelector('.message[data-id="temp-user"]');
+            if (tempUserMsg) tempUserMsg.dataset.id = savedUserMsg.id;
+
+            // Update state
+            messagesMap[savedUserMsg.id] = savedUserMsg;
+            if (!messageChildren[currentParentId]) messageChildren[currentParentId] = [];
+            messageChildren[currentParentId].push(savedUserMsg.id);
+            activeBranch[currentParentId] = savedUserMsg.id;
+
+            // 2. Stream AI reply
             const response = await fetch('/api/chat', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -608,8 +682,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 body: JSON.stringify({
                     api_key: apiKey,
                     model_name: modelName,
-                    message: message,
                     conversation_id: currentConversationId,
+                    parent_id: savedUserMsg.id,
                     system_prompt: appConfig.system_prompt
                 })
             });
@@ -629,7 +703,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const decoder = new TextDecoder("utf-8");
             let done = false;
 
-            const streamMsg = addStreamingMessage();
+            const streamMsg = addStreamingMessage(savedUserMsg.id);
             let fullText = '';
             let fullReasoning = '';
             let buffer = '';
@@ -652,6 +726,21 @@ document.addEventListener('DOMContentLoaded', () => {
                                 const parsed = JSON.parse(dataStr);
                                 if (parsed.done && parsed.message_id) {
                                     streamMsg.finalize(parsed.message_id, fullText);
+
+                                    // Make sure tree state is updated
+                                    messagesMap[parsed.message_id] = {
+                                        id: parsed.message_id,
+                                        parent_id: savedUserMsg.id,
+                                        role: 'assistant',
+                                        content: fullText,
+                                        model_name: appConfig.last_used_model || 'mistralai/mistral-small-4-119b-2603',
+                                        timestamp: new Date().toISOString()
+                                    };
+
+                                    if (!messageChildren[savedUserMsg.id]) messageChildren[savedUserMsg.id] = [];
+                                    messageChildren[savedUserMsg.id].push(parsed.message_id);
+                                    activeBranch[savedUserMsg.id] = parsed.message_id;
+                                    renderChat();
                                     continue;
                                 }
                                 if (parsed.choices && parsed.choices.length > 0) {
@@ -720,7 +809,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function formatTimestamp(isoString) {
         if (!isoString) return '';
-        const d = new Date(isoString + 'Z');  // server sends UTC without Z
+        // If it already has a timezone indicator (Z or +HH:mm), don't append Z
+        const dateStr = isoString.endsWith('Z') || isoString.includes('+') || isoString.match(/-\d{2}:\d{2}$/)
+            ? isoString
+            : isoString + 'Z';
+        const d = new Date(dateStr);
         return d.toLocaleString(undefined, {
             month: 'short', day: 'numeric',
             hour: '2-digit', minute: '2-digit'
@@ -731,15 +824,22 @@ document.addEventListener('DOMContentLoaded', () => {
     // Message Rendering
     // =====================================================================
 
-    function addMessage(sender, text, type, reasoning = null, modelDisplayName = null, timestamp = null, msgId = null) {
+    function addMessage(sender, text, type, reasoning = null, modelDisplayName = null, timestamp = null, msgId = null, parentId = null) {
         const messageDiv = document.createElement('div');
         messageDiv.classList.add('message', type);
         if (msgId) messageDiv.dataset.id = msgId;
+        if (parentId) messageDiv.dataset.parentId = parentId;
 
-        // Header for AI messages: "Model Name · Mar 26, 14:30"
+        // Check for siblings to render the branch navigator
+        const pId = parentId || null;
+        const siblings = messageChildren[pId] || [];
+        const currentIndex = siblings.indexOf(msgId);
+
+        // Header
+        const headerDiv = document.createElement('div');
+        headerDiv.classList.add('message-header');
+
         if (type === 'ai') {
-            const headerDiv = document.createElement('div');
-            headerDiv.classList.add('message-header');
             const nameSpan = document.createElement('span');
             nameSpan.classList.add('message-model-name');
             nameSpan.textContent = modelDisplayName || 'Assistant';
@@ -754,7 +854,44 @@ document.addEventListener('DOMContentLoaded', () => {
                 timeSpan.textContent = formatTimestamp(timestamp);
                 headerDiv.appendChild(timeSpan);
             }
+        }
+
+        if (type === 'ai' || (type === 'user' && siblings.length > 1)) {
             messageDiv.appendChild(headerDiv);
+        }
+
+        // Branch Navigator
+        if (msgId && siblings.length > 1) {
+            const navigatorDiv = document.createElement('div');
+            navigatorDiv.classList.add('branch-navigator');
+
+            const prevBtn = document.createElement('button');
+            prevBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>';
+            prevBtn.disabled = currentIndex === 0;
+            prevBtn.onclick = () => {
+                if (currentIndex > 0) {
+                    activeBranch[pId] = siblings[currentIndex - 1];
+                    renderChat();
+                }
+            };
+
+            const countSpan = document.createElement('span');
+            countSpan.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 22a8 8 0 1 0 0-16 8 8 0 0 0 0 16z"/><path d="M22 2l-4.5 4.5"/></svg> ${currentIndex + 1} of ${siblings.length}`;
+
+            const nextBtn = document.createElement('button');
+            nextBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>';
+            nextBtn.disabled = currentIndex === siblings.length - 1;
+            nextBtn.onclick = () => {
+                if (currentIndex < siblings.length - 1) {
+                    activeBranch[pId] = siblings[currentIndex + 1];
+                    renderChat();
+                }
+            };
+
+            navigatorDiv.appendChild(prevBtn);
+            navigatorDiv.appendChild(countSpan);
+            navigatorDiv.appendChild(nextBtn);
+            messageDiv.appendChild(navigatorDiv);
         }
 
         const contentDiv = document.createElement('div');
@@ -790,7 +927,7 @@ document.addEventListener('DOMContentLoaded', () => {
         scrollToBottom();
     }
 
-    function addStreamingMessage() {
+    function addStreamingMessage(parentId) {
         const modelName = appConfig.last_used_model || '';
         const displayName = formatModelName(modelName);
         const now = new Date();
@@ -801,6 +938,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const messageDiv = document.createElement('div');
         messageDiv.classList.add('message', 'ai');
+        if (parentId) messageDiv.dataset.parentId = parentId;
+
+        // Check siblings
+        const pId = parentId || null;
+        let sibCount = (messageChildren[pId] || []).length;
+        // Assume this new streaming message is the latest child
+        sibCount += 1;
 
         // Header
         const headerDiv = document.createElement('div');
@@ -818,6 +962,27 @@ document.addEventListener('DOMContentLoaded', () => {
         timeSpan.textContent = timeStr;
         headerDiv.appendChild(timeSpan);
         messageDiv.appendChild(headerDiv);
+
+        if (sibCount > 1) {
+            const navigatorDiv = document.createElement('div');
+            navigatorDiv.classList.add('branch-navigator');
+
+            const prevBtn = document.createElement('button');
+            prevBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>';
+            prevBtn.disabled = false; // it will be at the end, so prev is possible
+
+            const countSpan = document.createElement('span');
+            countSpan.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 22a8 8 0 1 0 0-16 8 8 0 0 0 0 16z"/><path d="M22 2l-4.5 4.5"/></svg> ${sibCount} of ${sibCount}`;
+
+            const nextBtn = document.createElement('button');
+            nextBtn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>';
+            nextBtn.disabled = true; // it is the last one
+
+            navigatorDiv.appendChild(prevBtn);
+            navigatorDiv.appendChild(countSpan);
+            navigatorDiv.appendChild(nextBtn);
+            messageDiv.appendChild(navigatorDiv);
+        }
 
         const contentDiv = document.createElement('div');
         contentDiv.classList.add('message-content');
@@ -957,29 +1122,28 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function handleResendUserMessage(messageDiv) {
+        // Now resend user message just means "generate another child from this user message"
         const msgId = messageDiv.dataset.id;
+        const parentIdStr = messageDiv.dataset.parentId;
+        const parentId = parentIdStr && parentIdStr !== 'null' ? parseInt(parentIdStr) : null;
+
         if (!msgId || !currentConversationId) return;
+        const msgIdInt = parseInt(msgId);
+
         const apiKey = appConfig.api_key;
         if (!apiKey) {
             addMessage('System', 'Please enter your NanoGPT API Key in the settings.', 'error');
             return;
         }
 
-        // Visual remove of everything AFTER the user message
-        let nextSibling = messageDiv.nextElementSibling;
-        while(nextSibling) {
-            const temp = nextSibling.nextElementSibling;
-            nextSibling.remove();
-            nextSibling = temp;
-        }
-
-        const thinkingId = addThinkingIndicator();
-        setGeneratingState(true);
-        currentAbortController = new AbortController();
-
         try {
-            // Delete DB records after this user message
-            await fetch(`/api/messages/${msgId}/after`, { method: 'DELETE' });
+            // Unset active branch so that when renderChat is called it only renders up to the user message
+            activeBranch[msgIdInt] = null;
+            renderChat();
+
+            const thinkingId = addThinkingIndicator();
+            setGeneratingState(true);
+            currentAbortController = new AbortController();
 
             const response = await fetch('/api/chat', {
                 method: 'POST',
@@ -988,10 +1152,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 body: JSON.stringify({
                     api_key: apiKey,
                     model_name: appConfig.last_used_model || 'mistralai/mistral-small-4-119b-2603',
-                    message: "",
                     conversation_id: currentConversationId,
-                    system_prompt: appConfig.system_prompt,
-                    regenerate: true
+                    parent_id: msgIdInt,
+                    system_prompt: appConfig.system_prompt
                 })
             });
 
@@ -1010,7 +1173,8 @@ document.addEventListener('DOMContentLoaded', () => {
             const decoder = new TextDecoder("utf-8");
             let done = false;
 
-            const streamMsg = addStreamingMessage();
+            // This creates a new streaming node whose parent is the User message
+            const streamMsg = addStreamingMessage(msgIdInt);
             let fullText = '';
             let fullReasoning = '';
             let buffer = '';
@@ -1033,6 +1197,20 @@ document.addEventListener('DOMContentLoaded', () => {
                                 const parsed = JSON.parse(dataStr);
                                 if (parsed.done && parsed.message_id) {
                                     streamMsg.finalize(parsed.message_id, fullText);
+
+                                    messagesMap[parsed.message_id] = {
+                                        id: parsed.message_id,
+                                        parent_id: msgIdInt,
+                                        role: 'assistant',
+                                        content: fullText,
+                                        model_name: appConfig.last_used_model || 'mistralai/mistral-small-4-119b-2603',
+                                        timestamp: new Date().toISOString()
+                                    };
+
+                                    if (!messageChildren[msgIdInt]) messageChildren[msgIdInt] = [];
+                                    messageChildren[msgIdInt].push(parsed.message_id);
+                                    activeBranch[msgIdInt] = parsed.message_id;
+                                    renderChat();
                                     continue;
                                 }
                                 if (parsed.choices && parsed.choices.length > 0) {
@@ -1074,26 +1252,25 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function handleRetry(messageDiv) {
+        // Retry AI message means "generate a sibling AI response (from the AI message's parent)"
         const msgId = messageDiv.dataset.id;
+        const parentIdStr = messageDiv.dataset.parentId;
+        const parentId = parentIdStr && parentIdStr !== 'null' ? parseInt(parentIdStr) : null;
+
         if (!msgId || !currentConversationId) return;
+        const msgIdInt = parseInt(msgId);
+
         const apiKey = appConfig.api_key;
         if (!apiKey) return;
 
-        // Visual remove
-        let nextSibling = messageDiv;
-        while(nextSibling) {
-            const temp = nextSibling.nextElementSibling;
-            nextSibling.remove();
-            nextSibling = temp;
-        }
-
-        const thinkingId = addThinkingIndicator();
-        setGeneratingState(true);
-        currentAbortController = new AbortController();
-
         try {
-            // Delete DB records
-            await fetch(`/api/messages/${msgId}`, { method: 'DELETE' });
+            // Ensure the chat is rendered up to the parent message so that it clears the active visual tree below
+            activeBranch[parentId] = null;
+            renderChat();
+
+            const thinkingId = addThinkingIndicator();
+            setGeneratingState(true);
+            currentAbortController = new AbortController();
 
             const response = await fetch('/api/chat', {
                 method: 'POST',
@@ -1102,10 +1279,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 body: JSON.stringify({
                     api_key: apiKey,
                     model_name: appConfig.last_used_model || 'mistralai/mistral-small-4-119b-2603',
-                    message: "",
                     conversation_id: currentConversationId,
-                    system_prompt: appConfig.system_prompt,
-                    regenerate: true
+                    parent_id: parentId, // We use the parent (the user message) to generate a sibling
+                    system_prompt: appConfig.system_prompt
                 })
             });
 
@@ -1116,7 +1292,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const decoder = new TextDecoder("utf-8");
             let done = false;
 
-            const streamMsg = addStreamingMessage();
+            const streamMsg = addStreamingMessage(parentId);
             let fullText = '';
             let fullReasoning = '';
             let buffer = '';
@@ -1137,6 +1313,20 @@ document.addEventListener('DOMContentLoaded', () => {
                                 const parsed = JSON.parse(dataStr);
                                 if (parsed.done && parsed.message_id) {
                                     streamMsg.finalize(parsed.message_id, fullText);
+
+                                    messagesMap[parsed.message_id] = {
+                                        id: parsed.message_id,
+                                        parent_id: parentId,
+                                        role: 'assistant',
+                                        content: fullText,
+                                        model_name: appConfig.last_used_model || 'mistralai/mistral-small-4-119b-2603',
+                                        timestamp: new Date().toISOString()
+                                    };
+
+                                    if (!messageChildren[parentId]) messageChildren[parentId] = [];
+                                    messageChildren[parentId].push(parsed.message_id);
+                                    activeBranch[parentId] = parsed.message_id;
+                                    renderChat();
                                     continue;
                                 }
                                 if (parsed.choices && parsed.choices.length > 0) {
@@ -1172,6 +1362,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function handleEdit(messageDiv) {
         const msgId = messageDiv.dataset.id;
+        const msgIdInt = parseInt(msgId);
+        const parentIdStr = messageDiv.dataset.parentId;
+        const parentId = parentIdStr && parentIdStr !== 'null' ? parseInt(parentIdStr) : null;
+        const isUser = messageDiv.classList.contains('user');
+
         if (!msgId) return;
 
         const contentDiv = messageDiv.querySelector('.message-content');
@@ -1230,18 +1425,133 @@ document.addEventListener('DOMContentLoaded', () => {
             saveBtn.disabled = true;
             saveBtn.textContent = 'Saving...';
             try {
-                const res = await fetch(`/api/messages/${msgId}`, {
-                    method: 'PUT',
+                // Post as a NEW message sibling
+                const res = await fetch(`/api/messages`, {
+                    method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ content: newText })
+                    body: JSON.stringify({
+                        conversation_id: currentConversationId,
+                        parent_id: parentId,
+                        role: isUser ? 'user' : 'assistant',
+                        content: newText,
+                        model_name: isUser ? null : appConfig.last_used_model
+                    })
                 });
+
                 if (res.ok) {
-                    messageDiv.dataset.rawText = newText;
+                    const newMsgObj = await res.json();
+
+                    // Update tree structure
+                    messagesMap[newMsgObj.id] = newMsgObj;
+                    if (!messageChildren[parentId]) messageChildren[parentId] = [];
+                    messageChildren[parentId].push(newMsgObj.id);
+                    activeBranch[parentId] = newMsgObj.id;
+
+                    closeEdit();
+                    renderChat(); // Render it to show the new node instead of old one
+
+                    // If it was a user message, auto-trigger a response
+                    if (isUser) {
+                        const apiKey = appConfig.api_key;
+                        if (!apiKey) {
+                            addMessage('System', 'Please enter your NanoGPT API Key in the settings.', 'error');
+                            return;
+                        }
+
+                        const thinkingId = addThinkingIndicator();
+                        setGeneratingState(true);
+                        currentAbortController = new AbortController();
+
+                        try {
+                            const aiRes = await fetch('/api/chat', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                signal: currentAbortController.signal,
+                                body: JSON.stringify({
+                                    api_key: apiKey,
+                                    model_name: appConfig.last_used_model || 'mistralai/mistral-small-4-119b-2603',
+                                    conversation_id: currentConversationId,
+                                    parent_id: newMsgObj.id,
+                                    system_prompt: appConfig.system_prompt
+                                })
+                            });
+
+                            removeElement(thinkingId);
+                            if (!aiRes.ok) throw new Error('Regenerate failed');
+
+                            const reader = aiRes.body.getReader();
+                            const decoder = new TextDecoder("utf-8");
+                            let done = false;
+
+                            const streamMsg = addStreamingMessage(newMsgObj.id);
+                            let fullText = '';
+                            let fullReasoning = '';
+                            let buffer = '';
+
+                            while (!done) {
+                                const { value, done: readerDone } = await reader.read();
+                                done = readerDone;
+                                if (value) {
+                                    buffer += decoder.decode(value, { stream: true });
+                                    const lines = buffer.split('\n');
+                                    buffer = lines.pop();
+                                    for (const line of lines) {
+                                        if (line.startsWith('data: ')) {
+                                            const dataStr = line.substring(6).trim();
+                                            if (dataStr === '[DONE]') continue;
+                                            if (!dataStr) continue;
+                                            try {
+                                                const parsed = JSON.parse(dataStr);
+                                                if (parsed.done && parsed.message_id) {
+                                                    streamMsg.finalize(parsed.message_id, fullText);
+
+                                                    messagesMap[parsed.message_id] = {
+                                                        id: parsed.message_id,
+                                                        parent_id: newMsgObj.id,
+                                                        role: 'assistant',
+                                                        content: fullText,
+                                                        model_name: appConfig.last_used_model || 'mistralai/mistral-small-4-119b-2603',
+                                                        timestamp: new Date().toISOString()
+                                                    };
+                                                    if (!messageChildren[newMsgObj.id]) messageChildren[newMsgObj.id] = [];
+                                                    messageChildren[newMsgObj.id].push(parsed.message_id);
+                                                    activeBranch[newMsgObj.id] = parsed.message_id;
+                                    renderChat();
+                                    continue;
+                                                }
+                                                if (parsed.choices && parsed.choices.length > 0) {
+                                                    const delta = parsed.choices[0].delta || {};
+                                                    if (delta.reasoning) fullReasoning += delta.reasoning;
+                                                    if (delta.content) fullText += delta.content;
+                                                    const msgObj = parsed.choices[0].message || {};
+                                                    if (msgObj.reasoning && !delta.reasoning && fullReasoning.length === 0) fullReasoning = msgObj.reasoning;
+                                                    if (msgObj.content && !delta.content && fullText.length === 0) fullText = msgObj.content;
+                                                    streamMsg.update(fullText, fullReasoning);
+                                                }
+                                            } catch (e) {}
+                                        }
+                                    }
+                                }
+                            }
+                            await loadConversations();
+
+                        } catch (err) {
+                            removeElement(thinkingId);
+                            if (err.name !== 'AbortError') {
+                                addMessage('System', `Error: ${err.message}`, 'error');
+                            }
+                        } finally {
+                            setGeneratingState(false);
+                            currentAbortController = null;
+                        }
+                    } else {
+                        await loadConversations();
+                    }
                 }
             } catch(e) {
                 console.error(e);
+                closeEdit();
             }
-            closeEdit();
         });
     }
 
