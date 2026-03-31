@@ -782,11 +782,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
         messageDiv.appendChild(contentDiv);
         
-        if (type === 'ai') {
-            messageDiv.dataset.rawText = text;
-            const actionBar = createActionBar(messageDiv);
-            messageDiv.appendChild(actionBar);
-        }
+        messageDiv.dataset.rawText = text;
+        const actionBar = createActionBar(messageDiv, type);
+        messageDiv.appendChild(actionBar);
 
         chatHistory.appendChild(messageDiv);
         scrollToBottom();
@@ -857,7 +855,7 @@ document.addEventListener('DOMContentLoaded', () => {
             finalize: (msgId, finalRawText) => {
                 messageDiv.dataset.id = msgId;
                 messageDiv.dataset.rawText = finalRawText;
-                const actionBar = createActionBar(messageDiv);
+                const actionBar = createActionBar(messageDiv, 'ai');
                 messageDiv.appendChild(actionBar);
             }
         };
@@ -898,31 +896,49 @@ document.addEventListener('DOMContentLoaded', () => {
     // Action Bar Handlers (Retry, Copy, Edit)
     // =====================================================================
 
-    function createActionBar(messageDiv) {
+    function createActionBar(messageDiv, type) {
         const actionBar = document.createElement('div');
         actionBar.className = 'message-actions';
 
-        const retryBtn = document.createElement('button');
-        retryBtn.className = 'message-action-btn retry-btn';
-        retryBtn.title = 'Retry';
-        retryBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path></svg>';
-        retryBtn.addEventListener('click', () => handleRetry(messageDiv));
+        if (type === 'ai') {
+            const retryBtn = document.createElement('button');
+            retryBtn.className = 'message-action-btn retry-btn';
+            retryBtn.title = 'Retry';
+            retryBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path></svg>';
+            retryBtn.addEventListener('click', () => handleRetry(messageDiv));
 
-        const copyBtn = document.createElement('button');
-        copyBtn.className = 'message-action-btn copy-btn';
-        copyBtn.title = 'Copy';
-        copyBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>';
-        copyBtn.addEventListener('click', () => handleCopy(copyBtn, messageDiv.dataset.rawText));
+            const copyBtn = document.createElement('button');
+            copyBtn.className = 'message-action-btn copy-btn';
+            copyBtn.title = 'Copy';
+            copyBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>';
+            copyBtn.addEventListener('click', () => handleCopy(copyBtn, messageDiv.dataset.rawText));
 
-        const editBtn = document.createElement('button');
-        editBtn.className = 'message-action-btn edit-btn';
-        editBtn.title = 'Edit';
-        editBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>';
-        editBtn.addEventListener('click', () => handleEdit(messageDiv));
+            const editBtn = document.createElement('button');
+            editBtn.className = 'message-action-btn edit-btn';
+            editBtn.title = 'Edit';
+            editBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>';
+            editBtn.addEventListener('click', () => handleEdit(messageDiv));
 
-        actionBar.appendChild(retryBtn);
-        actionBar.appendChild(copyBtn);
-        actionBar.appendChild(editBtn);
+            actionBar.appendChild(retryBtn);
+            actionBar.appendChild(copyBtn);
+            actionBar.appendChild(editBtn);
+        } else if (type === 'user') {
+            const resendBtn = document.createElement('button');
+            resendBtn.className = 'message-action-btn resend-btn';
+            resendBtn.title = 'Resend';
+            resendBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path></svg>';
+            resendBtn.addEventListener('click', () => handleResendUserMessage(messageDiv));
+
+            const editBtn = document.createElement('button');
+            editBtn.className = 'message-action-btn edit-btn';
+            editBtn.title = 'Edit';
+            editBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>';
+            editBtn.addEventListener('click', () => handleEdit(messageDiv));
+
+            actionBar.appendChild(resendBtn);
+            actionBar.appendChild(editBtn);
+            actionBar.style.justifyContent = 'flex-end';
+        }
 
         return actionBar;
     }
@@ -937,6 +953,133 @@ document.addEventListener('DOMContentLoaded', () => {
             }, 2000);
         } catch (err) {
             console.error('Failed to copy', err);
+        }
+    }
+
+    async function handleResendUserMessage(messageDiv) {
+        const msgId = messageDiv.dataset.id;
+        if (!msgId || !currentConversationId) return;
+        const apiKey = appConfig.api_key;
+        if (!apiKey) {
+            addMessage('System', 'Please enter your NanoGPT API Key in the settings.', 'error');
+            return;
+        }
+
+        // Visual remove of everything AFTER the user message
+        let nextSibling = messageDiv.nextElementSibling;
+        while(nextSibling) {
+            const temp = nextSibling.nextElementSibling;
+            nextSibling.remove();
+            nextSibling = temp;
+        }
+
+        const thinkingId = addThinkingIndicator();
+        setGeneratingState(true);
+        currentAbortController = new AbortController();
+
+        try {
+            // Delete DB records after this user message
+            await fetch(`/api/messages/${msgId}/after`, { method: 'DELETE' });
+
+            const response = await fetch('/api/chat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                signal: currentAbortController.signal,
+                body: JSON.stringify({
+                    api_key: apiKey,
+                    model_name: appConfig.last_used_model || 'mistralai/mistral-small-4-119b-2603',
+                    message: "",
+                    conversation_id: currentConversationId,
+                    system_prompt: appConfig.system_prompt,
+                    regenerate: true
+                })
+            });
+
+            removeElement(thinkingId);
+
+            if (!response.ok) {
+                let errorMsg = 'Unknown error occurred on backend';
+                try {
+                    const errorData = await response.json();
+                    errorMsg = errorData.error || errorMsg;
+                } catch(e) {}
+                throw new Error(errorMsg);
+            }
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder("utf-8");
+
+            const streamHandler = addStreamingMessage();
+            let finalMsgId = null;
+            let fullRawText = '';
+            let buffer = '';
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                const chunk = decoder.decode(value, { stream: true });
+
+                buffer += chunk;
+                const events = buffer.split('\n\n');
+                buffer = events.pop();
+
+                for (const event of events) {
+                    if (event.startsWith('data: ')) {
+                        const dataStr = event.slice(6).trim();
+                        if (dataStr === '[DONE]') continue;
+                        try {
+                            const parsed = JSON.parse(dataStr);
+
+                            if (parsed.done && parsed.message_id) {
+                                finalMsgId = parsed.message_id;
+                                continue;
+                            }
+
+                            if (parsed.choices && parsed.choices.length > 0) {
+                                const delta = parsed.choices[0].delta || {};
+                                const msgObj = parsed.choices[0].message || {};
+
+                                if (delta.content) {
+                                    fullRawText += delta.content;
+                                    streamHandler.update(delta.content);
+                                }
+                                if (delta.reasoning) {
+                                    streamHandler.updateReasoning(delta.reasoning);
+                                }
+
+                                if (msgObj.content && !delta.content && !fullRawText) {
+                                    fullRawText += msgObj.content;
+                                    streamHandler.update(msgObj.content);
+                                }
+                                if (msgObj.reasoning && !delta.reasoning) {
+                                    streamHandler.updateReasoning(msgObj.reasoning);
+                                }
+                            }
+                        } catch (e) {
+                            // ignore parse errors
+                        }
+                    }
+                }
+            }
+
+            if (finalMsgId) {
+                streamHandler.finalize(finalMsgId, fullRawText);
+            }
+            await loadConversations();
+        } catch (err) {
+            removeElement(thinkingId);
+            if (err.name === 'AbortError') {
+                console.log('Generation stopped by user (retry)');
+                setTimeout(() => {
+                    if (currentConversationId) loadMessages(currentConversationId);
+                }, 500);
+            } else {
+                addMessage('System', `Error: ${err.message}`, 'error');
+            }
+        } finally {
+            setGeneratingState(false);
+            currentAbortController = null;
         }
     }
 

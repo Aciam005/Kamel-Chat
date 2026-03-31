@@ -1005,7 +1005,8 @@ body {
     justify-content: flex-start;
 }
 
-.message.ai:hover .message-actions {
+.message.ai:hover .message-actions,
+.message.user:hover .message-actions {
     opacity: 1;
 }
 

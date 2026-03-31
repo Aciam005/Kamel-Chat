@@ -265,6 +265,20 @@ def delete_message(msg_id):
     db.session.commit()
     return jsonify({"status": "deleted"}), 200
 
+@app.route('/api/messages/<int:msg_id>/after', methods=['DELETE'])
+def delete_messages_after(msg_id):
+    """Delete all messages subsequent to a message in the conversation."""
+    msg = Message.query.get_or_404(msg_id)
+    conversation_id = msg.conversation_id
+
+    Message.query.filter(
+        Message.conversation_id == conversation_id,
+        Message.id > msg_id
+    ).delete()
+
+    db.session.commit()
+    return jsonify({"status": "deleted_after"}), 200
+
 
 # ---------------------------------------------------------------------------
 # Chat API (updated with persistence)
