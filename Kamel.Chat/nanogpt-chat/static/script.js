@@ -1008,63 +1008,53 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const reader = response.body.getReader();
             const decoder = new TextDecoder("utf-8");
+            let done = false;
 
-            const streamHandler = addStreamingMessage();
-            let finalMsgId = null;
-            let fullRawText = '';
+            const streamMsg = addStreamingMessage();
+            let fullText = '';
+            let fullReasoning = '';
             let buffer = '';
 
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
+            while (!done) {
+                const { value, done: readerDone } = await reader.read();
+                done = readerDone;
+                if (value) {
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop();
 
-                const chunk = decoder.decode(value, { stream: true });
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            const dataStr = line.substring(6).trim();
+                            if (dataStr === '[DONE]') continue;
+                            if (!dataStr) continue;
 
-                buffer += chunk;
-                const events = buffer.split('\n\n');
-                buffer = events.pop();
-
-                for (const event of events) {
-                    if (event.startsWith('data: ')) {
-                        const dataStr = event.slice(6).trim();
-                        if (dataStr === '[DONE]') continue;
-                        try {
-                            const parsed = JSON.parse(dataStr);
-
-                            if (parsed.done && parsed.message_id) {
-                                finalMsgId = parsed.message_id;
-                                continue;
-                            }
-
-                            if (parsed.choices && parsed.choices.length > 0) {
-                                const delta = parsed.choices[0].delta || {};
-                                const msgObj = parsed.choices[0].message || {};
-
-                                if (delta.content) {
-                                    fullRawText += delta.content;
-                                    streamHandler.update(delta.content);
+                            try {
+                                const parsed = JSON.parse(dataStr);
+                                if (parsed.done && parsed.message_id) {
+                                    streamMsg.finalize(parsed.message_id, fullText);
+                                    continue;
                                 }
-                                if (delta.reasoning) {
-                                    streamHandler.updateReasoning(delta.reasoning);
-                                }
+                                if (parsed.choices && parsed.choices.length > 0) {
+                                    const delta = parsed.choices[0].delta || {};
 
-                                if (msgObj.content && !delta.content && !fullRawText) {
-                                    fullRawText += msgObj.content;
-                                    streamHandler.update(msgObj.content);
+                                    if (delta.reasoning) fullReasoning += delta.reasoning;
+                                    if (delta.content) fullText += delta.content;
+
+                                    const msgObj = parsed.choices[0].message || {};
+                                    if (msgObj.reasoning && !delta.reasoning && fullReasoning.length === 0) {
+                                        fullReasoning = msgObj.reasoning;
+                                    }
+                                    if (msgObj.content && !delta.content && fullText.length === 0) {
+                                        fullText = msgObj.content;
+                                    }
+
+                                    streamMsg.update(fullText, fullReasoning);
                                 }
-                                if (msgObj.reasoning && !delta.reasoning) {
-                                    streamHandler.updateReasoning(msgObj.reasoning);
-                                }
-                            }
-                        } catch (e) {
-                            // ignore parse errors
+                            } catch (e) { }
                         }
                     }
                 }
-            }
-
-            if (finalMsgId) {
-                streamHandler.finalize(finalMsgId, fullRawText);
             }
             await loadConversations();
         } catch (err) {
