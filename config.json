@@ -1,5 +1,5 @@
 {
-    "api_key": "",
+    "api_key": "test",
     "models": [
         "mistralai/mistral-small-4-119b-2603",
         "minimax/minimax-m2.7",

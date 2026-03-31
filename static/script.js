@@ -728,10 +728,19 @@ document.addEventListener('DOMContentLoaded', () => {
                                     streamMsg.finalize(parsed.message_id, fullText);
 
                                     // Make sure tree state is updated
+                                    messagesMap[parsed.message_id] = {
+                                        id: parsed.message_id,
+                                        parent_id: savedUserMsg.id,
+                                        role: 'assistant',
+                                        content: fullText,
+                                        model_name: appConfig.last_used_model || 'mistralai/mistral-small-4-119b-2603',
+                                        timestamp: new Date().toISOString()
+                                    };
+
                                     if (!messageChildren[savedUserMsg.id]) messageChildren[savedUserMsg.id] = [];
                                     messageChildren[savedUserMsg.id].push(parsed.message_id);
                                     activeBranch[savedUserMsg.id] = parsed.message_id;
-
+                                    renderChat();
                                     continue;
                                 }
                                 if (parsed.choices && parsed.choices.length > 0) {
@@ -1185,13 +1194,19 @@ document.addEventListener('DOMContentLoaded', () => {
                                 if (parsed.done && parsed.message_id) {
                                     streamMsg.finalize(parsed.message_id, fullText);
 
+                                    messagesMap[parsed.message_id] = {
+                                        id: parsed.message_id,
+                                        parent_id: msgIdInt,
+                                        role: 'assistant',
+                                        content: fullText,
+                                        model_name: appConfig.last_used_model || 'mistralai/mistral-small-4-119b-2603',
+                                        timestamp: new Date().toISOString()
+                                    };
+
                                     if (!messageChildren[msgIdInt]) messageChildren[msgIdInt] = [];
                                     messageChildren[msgIdInt].push(parsed.message_id);
                                     activeBranch[msgIdInt] = parsed.message_id;
-
-                                    // Make sure it updates correctly the visual branch selector
                                     renderChat();
-
                                     continue;
                                 }
                                 if (parsed.choices && parsed.choices.length > 0) {
@@ -1295,11 +1310,18 @@ document.addEventListener('DOMContentLoaded', () => {
                                 if (parsed.done && parsed.message_id) {
                                     streamMsg.finalize(parsed.message_id, fullText);
 
+                                    messagesMap[parsed.message_id] = {
+                                        id: parsed.message_id,
+                                        parent_id: parentId,
+                                        role: 'assistant',
+                                        content: fullText,
+                                        model_name: appConfig.last_used_model || 'mistralai/mistral-small-4-119b-2603',
+                                        timestamp: new Date().toISOString()
+                                    };
+
                                     if (!messageChildren[parentId]) messageChildren[parentId] = [];
                                     messageChildren[parentId].push(parsed.message_id);
                                     activeBranch[parentId] = parsed.message_id;
-
-                                    // Re-render once more to ensure the branch navigator updates
                                     renderChat();
                                     continue;
                                 }
@@ -1478,11 +1500,20 @@ document.addEventListener('DOMContentLoaded', () => {
                                                 const parsed = JSON.parse(dataStr);
                                                 if (parsed.done && parsed.message_id) {
                                                     streamMsg.finalize(parsed.message_id, fullText);
+
+                                                    messagesMap[parsed.message_id] = {
+                                                        id: parsed.message_id,
+                                                        parent_id: newMsgObj.id,
+                                                        role: 'assistant',
+                                                        content: fullText,
+                                                        model_name: appConfig.last_used_model || 'mistralai/mistral-small-4-119b-2603',
+                                                        timestamp: new Date().toISOString()
+                                                    };
                                                     if (!messageChildren[newMsgObj.id]) messageChildren[newMsgObj.id] = [];
                                                     messageChildren[newMsgObj.id].push(parsed.message_id);
                                                     activeBranch[newMsgObj.id] = parsed.message_id;
-                                                    renderChat();
-                                                    continue;
+                                    renderChat();
+                                    continue;
                                                 }
                                                 if (parsed.choices && parsed.choices.length > 0) {
                                                     const delta = parsed.choices[0].delta || {};
