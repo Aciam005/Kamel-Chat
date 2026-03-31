@@ -809,7 +809,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function formatTimestamp(isoString) {
         if (!isoString) return '';
-        const d = new Date(isoString + 'Z');  // server sends UTC without Z
+        // If it already has a timezone indicator (Z or +HH:mm), don't append Z
+        const dateStr = isoString.endsWith('Z') || isoString.includes('+') || isoString.match(/-\d{2}:\d{2}$/)
+            ? isoString
+            : isoString + 'Z';
+        const d = new Date(dateStr);
         return d.toLocaleString(undefined, {
             month: 'short', day: 'numeric',
             hour: '2-digit', minute: '2-digit'

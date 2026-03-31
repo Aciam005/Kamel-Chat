@@ -18,18 +18,13 @@ def test():
 
         page.wait_for_timeout(2000)
 
-        print(f"Message count before retry: {page.locator('.message').count()}")
-
-        # click resend
-        page.hover('.message.user')
-        page.click('.message.user .resend-btn')
+        # click retry
+        page.hover('.message.ai')
+        page.click('.message.ai .retry-btn')
 
         page.wait_for_timeout(3000)
 
-        # check how many messages are in the dom
-        print(f"Messages in DOM after resend: {page.locator('.message').count()}")
-
-        page.screenshot(path="bug_resend.png")
+        page.screenshot(path="bug_fixed.png")
         b.close()
 
 test()
