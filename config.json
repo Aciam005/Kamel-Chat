@@ -1,5 +1,5 @@
 {
-    "api_key": "sk-nano-f420a014-9094-42e3-bc68-54bec13d0563",
+    "api_key": "",
     "models": [
         "mistralai/mistral-small-4-119b-2603",
         "minimax/minimax-m2.7",
