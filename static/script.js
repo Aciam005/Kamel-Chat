@@ -53,6 +53,31 @@ document.addEventListener('DOMContentLoaded', () => {
     let contextMenuConvoId = null;
 
     // =====================================================================
+    // Theme Toggle
+    // =====================================================================
+    const navToggleTheme = document.getElementById('nav-toggle-theme');
+
+    // Load saved theme
+    const savedTheme = localStorage.getItem('theme') || 'light';
+    if (savedTheme === 'dark') {
+        document.documentElement.setAttribute('data-theme', 'dark');
+    }
+
+    if (navToggleTheme) {
+        navToggleTheme.addEventListener('click', (e) => {
+            e.preventDefault();
+            const currentTheme = document.documentElement.getAttribute('data-theme');
+            if (currentTheme === 'dark') {
+                document.documentElement.removeAttribute('data-theme');
+                localStorage.setItem('theme', 'light');
+            } else {
+                document.documentElement.setAttribute('data-theme', 'dark');
+                localStorage.setItem('theme', 'dark');
+            }
+        });
+    }
+
+    // =====================================================================
     // Sidebar Toggle
     // =====================================================================
     if (menuBtn && toggleSidebarBtn && appContainer) {
