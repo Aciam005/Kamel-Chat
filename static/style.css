@@ -1,16 +1,25 @@
 :root {
-    --bg-color: #ffffff;
-    --sidebar-bg: #f9f9f9;
-    --border-color: #e5e5e5;
-    --text-primary: #111111;
-    --text-secondary: #666666;
-    --text-muted: #999999;
-    --accent-color: #ff4b2b;
-    --gradient-start: #ff416c;
-    --gradient-end: #ff4b2b;
-    --hover-bg: #eeeeee;
-    --user-msg-bg: #f3f3f3;
-    --ai-msg-bg: #ffffff;
+    --bg-color: #e0f2fe;
+    --sidebar-bg: rgba(255, 255, 255, 0.4);
+    --border-color: rgba(255, 255, 255, 0.5);
+    --text-primary: #1e293b;
+    --text-secondary: #334155;
+    --text-muted: #64748b;
+    --accent-color: #0ea5e9;
+    --gradient-start: #38bdf8;
+    --gradient-end: #0284c7;
+    --hover-bg: rgba(255, 255, 255, 0.4);
+
+    /* Glassmorphism Variables */
+    --glass-bg: rgba(255, 255, 255, 0.25);
+    --glass-border: rgba(255, 255, 255, 0.6);
+    --glass-shadow: 0 8px 32px 0 rgba(14, 165, 233, 0.05);
+    --glass-blur: blur(16px);
+
+    --user-msg-glass: rgba(255, 255, 255, 0.65);
+    --ai-msg-glass: rgba(224, 242, 254, 0.45);
+    --overlay-glass-bg: rgba(255, 255, 255, 0.75);
+
     --error-bg: rgba(248, 81, 73, 0.1);
     --error-color: #d73a49;
     --danger-color: #e53935;
@@ -23,9 +32,17 @@
     padding: 0;
 }
 
+@keyframes bgGradientShift {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+}
+
 body {
     font-family: var(--font-family);
-    background-color: var(--bg-color);
+    background: linear-gradient(-45deg, #e0f2fe, #f0f9ff, #ffffff, #e0f2fe);
+    background-size: 400% 400%;
+    animation: bgGradientShift 15s ease infinite;
     color: var(--text-primary);
     overflow: hidden;
     height: 100vh;
@@ -34,8 +51,10 @@ body {
 .app-container {
     display: grid;
     grid-template-columns: 260px 1fr;
-    height: 100vh;
-    width: 100vw;
+    height: calc(100vh - 32px);
+    width: calc(100vw - 32px);
+    margin: 16px;
+    gap: 16px;
     transition: grid-template-columns 0.3s ease;
 }
 
@@ -47,15 +66,19 @@ body {
    Sidebar
    ========================================================================= */
 .sidebar {
-    background-color: var(--sidebar-bg);
-    border-right: 1px solid var(--border-color);
+    background: var(--glass-bg);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--glass-shadow);
+    border-radius: 24px;
     display: flex;
     flex-direction: column;
     justify-content: space-between;
     height: 100%;
     overflow: hidden;
     white-space: nowrap;
-    transition: opacity 0.2s ease, visibility 0.2s ease, border-color 0.2s ease;
+    transition: opacity 0.2s ease, visibility 0.2s ease, border-color 0.2s ease, transform 0.3s ease;
 }
 
 .app-container.sidebar-closed .sidebar {
@@ -285,10 +308,12 @@ body {
 .context-menu {
     position: fixed;
     z-index: 500;
-    background: var(--bg-color);
-    border: 1px solid var(--border-color);
+    background: var(--overlay-glass-bg);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+    border: 1px solid var(--glass-border);
     border-radius: 10px;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.10), 0 1px 4px rgba(0, 0, 0, 0.06);
+    box-shadow: 0 8px 32px rgba(14, 165, 233, 0.15);
     padding: 4px;
     min-width: 160px;
     display: none;
@@ -480,8 +505,13 @@ body {
 .chat-area {
     display: flex;
     flex-direction: column;
-    height: 100vh;
-    background-color: var(--bg-color);
+    height: 100%;
+    background: var(--glass-bg);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--glass-shadow);
+    border-radius: 24px;
     position: relative;
     overflow: hidden;
 }
@@ -590,7 +620,11 @@ body {
 }
 
 .message.user .message-content {
-    background-color: var(--user-msg-bg);
+    background: var(--user-msg-glass);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--glass-shadow);
     color: var(--text-primary);
     padding: 12px 18px;
     border-radius: 16px;
@@ -598,9 +632,15 @@ body {
 }
 
 .message.ai .message-content {
-    background-color: transparent;
+    background: var(--ai-msg-glass);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--glass-shadow);
     color: var(--text-primary);
-    padding: 12px 0;
+    padding: 12px 18px;
+    border-radius: 16px;
+    border-bottom-left-radius: 4px;
 }
 
 .message.error .message-content {
@@ -616,11 +656,11 @@ body {
    ========================================================================= */
 .input-wrapper {
     position: absolute;
-    bottom: 0;
+    bottom: 24px;
     left: 0;
     right: 0;
-    padding: 24px 15%;
-    background: linear-gradient(to top, rgba(255, 255, 255, 1) 60%, rgba(255, 255, 255, 0));
+    padding: 0 15%;
+    background: transparent;
     pointer-events: none;
     display: flex;
     justify-content: center;
@@ -630,10 +670,12 @@ body {
     pointer-events: auto;
     width: 100%;
     max-width: 768px;
-    background: #ffffff;
-    border: 1px solid var(--border-color);
+    background: var(--glass-bg);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--glass-shadow);
     border-radius: 24px;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
     display: flex;
     align-items: center;
     padding: 8px 12px;
@@ -642,8 +684,8 @@ body {
 }
 
 .floating-input-bar:focus-within {
-    border-color: #d0d0d0;
-    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
+    border-color: rgba(255, 255, 255, 0.9);
+    box-shadow: 0 8px 32px 0 rgba(14, 165, 233, 0.15);
 }
 
 .add-btn {
@@ -839,12 +881,15 @@ body {
 }
 
 .modal-content {
-    background: var(--bg-color);
+    background: var(--overlay-glass-bg);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+    border: 1px solid var(--glass-border);
     width: 400px;
     max-width: 90%;
     border-radius: 16px;
     padding: 24px;
-    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 16px 64px rgba(14, 165, 233, 0.15);
     display: flex;
     flex-direction: column;
     gap: 20px;
